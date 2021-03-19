@@ -176,32 +176,6 @@ def test_one_hop_from_two_curies():
     nodes_by_qg_id, edges_by_qg_id = _run_query_and_do_standard_testing(actions_list)
 
 
-def test_two_hop_multiple_predicates():
-    actions_list = [
-        "add_qnode(id=DOID:14330, key=n00)",
-        "add_qnode(key=n01, category=biolink:Protein)",
-        "add_qnode(key=n02, category=biolink:ChemicalSubstance)",
-        "add_qedge(subject=n00, object=n01, key=e00)",
-        "add_qedge(subject=n01, object=n02, predicate=[physically_interacts_with, molecularly_interacts_with], key=e01)",
-        "expand(kp=ARAX/KG2)",
-        "return(message=true, store=false)",
-    ]
-    nodes_by_qg_id, edges_by_qg_id = _run_query_and_do_standard_testing(actions_list)
-
-
-def test_two_hop_2():
-    actions_list = [
-        "add_qnode(name=dementia, key=n00)",
-        "add_qnode(key=n01, category=biolink:PhenotypicFeature)",
-        "add_qnode(key=n02, category=biolink:Disease)",
-        "add_qedge(subject=n00, object=n01, key=e00)",
-        "add_qedge(subject=n01, object=n02, key=e01)",
-        "expand(kp=ARAX/KG2)",
-        "return(message=true, store=false)",
-    ]
-    nodes_by_qg_id, edges_by_qg_id = _run_query_and_do_standard_testing(actions_list)
-
-
 def test_one_hop_aceta_with_predicate():
     actions_list = [
         "add_qnode(id=CHEMBL.COMPOUND:CHEMBL112, key=n00)",
@@ -229,6 +203,58 @@ def test_many_curie_to_many_curie():
         "add_qnode(id=[CHEMBL.COMPOUND:CHEMBL25,CHEBI:5855], key=n00)",
         "add_qnode(id=CHEMBL.COMPOUND:CHEMBL112, key=n01)",
         "add_qedge(subject=n00, object=n01, key=e00)",
+        "expand(kp=ARAX/KG2)",
+        "return(message=true, store=false)",
+    ]
+    nodes_by_qg_id, edges_by_qg_id = _run_query_and_do_standard_testing(actions_list)
+
+
+def test_two_hop_smaller():
+    actions_list = [
+        "add_qnode(id=MONDO:0012496, key=n00)",
+        "add_qnode(category=biolink:PhenotypicFeature, key=n01)",
+        "add_qnode(category=biolink:Drug, key=n02)",
+        "add_qedge(subject=n00, object=n01, key=e00)",
+        "add_qedge(subject=n01, object=n02, key=e01)",
+        "expand(kp=ARAX/KG2)",
+        "return(message=true, store=false)",
+    ]
+    nodes_by_qg_id, edges_by_qg_id = _run_query_and_do_standard_testing(actions_list)
+
+
+def test_two_hop_multiple_predicates():
+    actions_list = [
+        "add_qnode(id=DOID:14330, key=n00)",
+        "add_qnode(key=n01, category=biolink:Protein)",
+        "add_qnode(key=n02, category=biolink:ChemicalSubstance)",
+        "add_qedge(subject=n00, object=n01, key=e00)",
+        "add_qedge(subject=n01, object=n02, predicate=[physically_interacts_with, molecularly_interacts_with], key=e01)",
+        "expand(kp=ARAX/KG2)",
+        "return(message=true, store=false)",
+    ]
+    nodes_by_qg_id, edges_by_qg_id = _run_query_and_do_standard_testing(actions_list)
+
+
+def test_two_hop_2():
+    actions_list = [
+        "add_qnode(id=DOID:9406, key=n00)",
+        "add_qnode(key=n01, category=biolink:ChemicalSubstance)",
+        "add_qnode(key=n02, category=biolink:Protein)",
+        "add_qedge(subject=n00, object=n01, key=e00)",
+        "add_qedge(subject=n01, object=n02, key=e01)",
+        "expand(kp=ARAX/KG2)",
+        "return(message=true, store=false)",
+    ]
+    nodes_by_qg_id, edges_by_qg_id = _run_query_and_do_standard_testing(actions_list)
+
+
+def test_two_hop_massive():
+    actions_list = [
+        "add_qnode(name=dementia, key=n00)",
+        "add_qnode(key=n01, category=biolink:PhenotypicFeature)",
+        "add_qnode(key=n02, category=biolink:Disease)",
+        "add_qedge(subject=n00, object=n01, key=e00)",
+        "add_qedge(subject=n01, object=n02, key=e01)",
         "expand(kp=ARAX/KG2)",
         "return(message=true, store=false)",
     ]

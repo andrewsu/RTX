@@ -8,6 +8,7 @@ import time
 import traceback
 import ast
 from typing import List, Dict, Tuple, Union, Set
+import numpy as np
 
 import requests
 from neo4j import GraphDatabase
@@ -85,19 +86,30 @@ class KG2Querier:
             qnode.category = []  # Important to clear this, otherwise results are limited (#889)
 
         # Run the actual query and process results
-        cypher_query = self._convert_one_hop_query_graph_to_cypher_query(query_graph, enforce_directionality, log)
-        if log.status != 'OK':
-            return final_kg, edge_to_nodes_map
-        neo4j_start = time.time()
-        neo4j_results = self._answer_query_using_neo4j(cypher_query, qedge_key, kg_name, log)
-        if log.status != 'OK':
-            return final_kg, edge_to_nodes_map
-        final_kg, edge_to_nodes_map = self._load_answers_into_kg(neo4j_results, kg_name, query_graph, log)
-        neo4j_time = time.time() - neo4j_start
-        new_db_start = time.time()
-        new_db_answer = self._answer_query_using_new_db(query_graph)
-        new_db_kg = self._grab_matching_nodes_and_edges(new_db_answer, kg_name, log)
-        new_db_time = time.time() - new_db_start
+        neo4j_times_a = []
+        neo4j_times_b = []
+        new_db_times_a = []
+        new_db_times_b = []
+        for num in range(3):
+            del final_kg
+            new_db_start_a = time.time()
+            new_db_answer = self._answer_query_using_new_db(query_graph)
+            new_db_times_a.append(time.time() - new_db_start_a)
+            new_db_start_b = time.time()
+            new_db_kg = self._grab_matching_nodes_and_edges(new_db_answer, kg_name, log)
+            new_db_times_b.append(time.time() - new_db_start_b)
+            num_new_db_nodes = 0
+            for qnode_key, nodes in new_db_kg.nodes_by_qg_id.items():
+                num_new_db_nodes += len(nodes)
+            num_new_db_edges = len(new_db_kg.edges_by_qg_id[qedge_key])
+            del new_db_kg
+            cypher_query = self._convert_one_hop_query_graph_to_cypher_query(query_graph, enforce_directionality, log)
+            neo4j_start_a = time.time()
+            neo4j_results = self._answer_query_using_neo4j(cypher_query, qedge_key, kg_name, log)
+            neo4j_times_a.append(time.time() - neo4j_start_a)
+            neo4j_start_b = time.time()
+            final_kg, edge_to_nodes_map = self._load_answers_into_kg(neo4j_results, kg_name, query_graph, log)
+            neo4j_times_b.append(time.time() - neo4j_start_b)
 
         if log.status != 'OK':
             return final_kg, edge_to_nodes_map
@@ -111,13 +123,14 @@ class KG2Querier:
             num_neo4j_nodes = 0
             for qnode_key, nodes in final_kg.nodes_by_qg_id.items():
                 num_neo4j_nodes += len(nodes)
-            num_new_db_nodes = 0
-            for qnode_key, nodes in new_db_kg.nodes_by_qg_id.items():
-                num_new_db_nodes += len(nodes)
             num_neo4j_edges = len(final_kg.edges_by_qg_id[qedge_key])
-            num_new_db_edges = len(new_db_kg.edges_by_qg_id[qedge_key])
+            neo4j_a_time_avg = np.average(neo4j_times_a)
+            neo4j_b_time_avg = np.average(neo4j_times_b)
+            newdb_a_time_avg = np.average(new_db_times_a)
+            newdb_b_time_avg = np.average(new_db_times_b)
             row = [num_subject_curies, subject_qnode.category, qedge.predicate, num_object_curies, object_qnode.category,
-                   neo4j_time, new_db_time, num_neo4j_nodes, num_new_db_nodes, num_neo4j_edges, num_new_db_edges]
+                   neo4j_a_time_avg, neo4j_b_time_avg, newdb_a_time_avg, newdb_b_time_avg, num_neo4j_nodes,
+                   num_new_db_nodes, num_neo4j_edges, num_new_db_edges]
             with open(f"query_times.csv", "a") as times_file:
                 writer = csv.writer(times_file)
                 writer.writerow(row)
