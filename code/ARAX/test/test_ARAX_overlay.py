@@ -170,6 +170,9 @@ def test_compute_ngd_virtual():
     for edge in ngd_edges:
         assert hasattr(edge, 'attributes')
         assert edge.attributes
+        attribute_names = {attribute.name: attribute.value for attribute in edge.attributes}
+        assert "publications" in attribute_names
+        assert len(attribute_names["publications"]) <= 30
         assert edge.attributes[0].name == 'normalized_google_distance'
         assert float(edge.attributes[0].value) >= 0
 
@@ -197,6 +200,10 @@ def test_compute_ngd_attribute():
                     assert float(attr.value) >= 0
                     assert attr.type == 'EDAM:data_2526'
     assert len(ngd_edges) > 0
+    for edge in ngd_edges:
+        attribute_names = {attribute.name: attribute.value for attribute in edge.attributes}
+        assert "ngd_publications" in attribute_names
+        assert len(attribute_names["ngd_publications"]) <= 30
 
 
 def test_FET_ex1():
@@ -542,7 +549,7 @@ def test_issue_840_non_drug():
 @pytest.mark.slow
 def test_issue_892():
     query = {"operations": {"actions": [
-        "add_qnode(id=DOID:11830, category=disease, key=n00)",
+        "add_qnode(id=DOID:11830, category=biolink:Disease, key=n00)",
         "add_qnode(category=biolink:Gene, id=[UniProtKB:P39060, UniProtKB:O43829, UniProtKB:P20849], is_set=true, key=n01)",
         "add_qnode(category=biolink:ChemicalSubstance, key=n02)",
         "add_qedge(subject=n00, object=n01, key=e00)",
