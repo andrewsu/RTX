@@ -95,13 +95,13 @@ class KG2Querier:
         neo4j_times_b = []
         new_db_times_a = []
         new_db_times_b = []
-        for num in range(3):
+        for num in range(1):
             del final_kg
             new_db_start_a = time.time()
             new_db_answer = self._answer_query_using_new_db(query_graph)
             new_db_times_a.append(time.time() - new_db_start_a)
             new_db_start_b = time.time()
-            new_db_kg = self._grab_matching_nodes_and_edges(new_db_answer, kg_name, log)
+            new_db_kg = self._grab_nodes_and_edges_from_sqlite(new_db_answer, kg_name, log)
             new_db_times_b.append(time.time() - new_db_start_b)
             num_new_db_nodes = 0
             for qnode_key, nodes in new_db_kg.nodes_by_qg_id.items():
@@ -272,7 +272,7 @@ class KG2Querier:
 
         return final_kg, edge_to_nodes_map
 
-    def _grab_matching_nodes_and_edges(self, new_db_answer: Dict[str, Dict[str, Set[Union[str, int]]]], kp: str, log: ARAXResponse) -> QGOrganizedKnowledgeGraph:
+    def _grab_nodes_and_edges_from_sqlite(self, new_db_answer: Dict[str, Dict[str, Set[Union[str, int]]]], kp: str, log: ARAXResponse) -> QGOrganizedKnowledgeGraph:
         answer_kg = QGOrganizedKnowledgeGraph()
         connection = sqlite3.connect(self.kg2c_db_path)
         cursor = connection.cursor()
@@ -415,8 +415,6 @@ class KG2Querier:
 
             # Create an Attribute for all non-empty values
             if property_value is not None and property_value != {} and property_value != []:
-                if isinstance(property_value, list):
-                    property_value.sort()  # Alphabetize lists
                 swagger_attribute = Attribute(name=property_name,
                                               type=eu.get_attribute_type(property_name),
                                               value=property_value)

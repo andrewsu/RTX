@@ -180,7 +180,7 @@ def test_one_hop_aceta_with_predicate():
     actions_list = [
         "add_qnode(id=CHEMBL.COMPOUND:CHEMBL112, key=n00)",
         "add_qnode(key=n01, category=biolink:Protein)",
-        "add_qedge(subject=n00, object=n01, key=e00, predicate=physically_interacts_with)",
+        "add_qedge(subject=n00, object=n01, key=e00, predicate=biolink:physically_interacts_with)",
         "expand(kp=ARAX/KG2)",
         "return(message=true, store=false)",
     ]
@@ -228,7 +228,7 @@ def test_two_hop_multiple_predicates():
         "add_qnode(key=n01, category=biolink:Protein)",
         "add_qnode(key=n02, category=biolink:ChemicalSubstance)",
         "add_qedge(subject=n00, object=n01, key=e00)",
-        "add_qedge(subject=n01, object=n02, predicate=[physically_interacts_with, molecularly_interacts_with], key=e01)",
+        "add_qedge(subject=n01, object=n02, predicate=[biolink:physically_interacts_with, biolink:molecularly_interacts_with], key=e01)",
         "expand(kp=ARAX/KG2)",
         "return(message=true, store=false)",
     ]
