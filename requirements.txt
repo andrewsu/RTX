@@ -1,11 +1,11 @@
 --index-url https://pypi.python.org/simple/
 #Causes Test Failure
+requests-cache==0.5.2
 
 #Doesn't Cause Test Failure
 
 #To test
-#requests-cache==0.5.2
-pandas>=1.0.3,<=1.0.4
+#pandas>=1.0.3,<=1.0.4
 neo4j-driver>=1.7.0,<=1.7.6
 numpy>=1.18.2,<=1.18.5
 ipython-cypher==0.2.6
