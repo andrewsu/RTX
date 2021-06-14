@@ -17,6 +17,7 @@ install:
   - pip install -r requirements.txt
   #- pip install reasoner_validator
   - python ./code/ARAX/ARAXQuery/ARAX_database_manager.py --slim
+  - scp rtxconfig@arax.ncats.io:/translator/data/orangeboard/databases/KG2.5.2/meta_map_v_1_0_kg2_5_2.json ./code/ARAX/ARAXQuery/Expand/meta_map.json
 # command to run tests
 script:
   - pytest -v ./code/ARAX/test/ --disable-pytest-warnings
