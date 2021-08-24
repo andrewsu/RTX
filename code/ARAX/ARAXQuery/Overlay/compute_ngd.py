@@ -3,6 +3,7 @@
 import functools
 import json
 import math
+import multiprocessing
 import subprocess
 import sys
 import os
@@ -10,7 +11,7 @@ import sqlite3
 import traceback
 import numpy as np
 from datetime import datetime
-from typing import List
+from typing import List, Tuple, Dict
 import itertools
 
 import random
@@ -47,7 +48,6 @@ class ComputeNGD:
         self.parameters = parameters
         self.global_iter = 0
         self.ngd_database_name = RTXConfig.curie_to_pmids_path.split('/')[-1]
-        self.connection, self.cursor = self._setup_ngd_database()
         self.curie_to_pmids_map = dict()
         self.ngd_normalizer = 2.2e+7 * 20  # From PubMed home page there are 27 million articles; avg 20 MeSH terms per article
 
@@ -59,7 +59,6 @@ class ComputeNGD:
         :return: response
         """
         if self.response.status != 'OK':  # Catches any errors that may have been logged during initialization
-            self._close_database()
             return self.response
         parameters = self.parameters
         self.response.debug(f"Computing NGD")
@@ -71,6 +70,7 @@ class ComputeNGD:
         url = "https://arax.ncats.io/api/rtx/v1/ui/#/PubmedMeshNgd"
         qg = self.message.query_graph
         kg = self.message.knowledge_graph
+        virtual_relation_label = parameters.get('virtual_relation_label')
 
         # if you want to add virtual edges, identify the subject/objects, decorate the edges, add them to the KG, and then add one to the QG corresponding to them
         if 'virtual_relation_label' in parameters:
@@ -82,70 +82,31 @@ class ComputeNGD:
             involved_curies = {curie for node_pair in node_pairs_to_evaluate for curie in node_pair}
             canonicalized_curie_lookup = self._get_canonical_curies_map(list(involved_curies))
             self.load_curie_to_pmids_data(canonicalized_curie_lookup.values())
-            added_flag = False  # check to see if any edges where added
-            self.response.debug(f"Looping through {len(node_pairs_to_evaluate)} node pairs and calculating NGD values")
-            # iterate over all pairs of these nodes, add the virtual edge, decorate with the correct attribute
-            for (subject_curie, object_curie) in node_pairs_to_evaluate:
-                # create the edge attribute if it can be
-                canonical_subject_curie = canonicalized_curie_lookup.get(subject_curie, subject_curie)
-                canonical_object_curie = canonicalized_curie_lookup.get(object_curie, object_curie)
-                ngd_value, pmid_set = self.calculate_ngd_fast(canonical_subject_curie, canonical_object_curie)
-                if np.isfinite(ngd_value):  # if ngd is finite, that's ok, otherwise, stay with default
-                    edge_value = ngd_value
-                else:
-                    edge_value = default_value
-                edge_attribute = EdgeAttribute(attribute_type_id=type, original_attribute_name=name, value=str(edge_value), value_url=url)  # populate the NGD edge attribute
-                pmid_attribute = EdgeAttribute(attribute_type_id="biolink:publications", original_attribute_name="publications", value=[f"PMID:{pmid}" for pmid in pmid_set])
-                if edge_attribute:
-                    added_flag = True
-                    # make the edge, add the attribute
 
-                    # edge properties
-                    now = datetime.now()
-                    edge_type = "biolink:has_normalized_google_distance_with"
-                    qedge_keys = [parameters['virtual_relation_label']]
-                    relation = parameters['virtual_relation_label']
-                    is_defined_by = "ARAX"
-                    defined_datetime = now.strftime("%Y-%m-%d %H:%M:%S")
-                    provided_by = "infores:arax"
-                    confidence = None
-                    weight = None  # TODO: could make the actual value of the attribute
-                    subject_key = subject_curie
-                    object_key = object_curie
-
-                    # now actually add the virtual edges in
-                    id = f"{relation}_{self.global_iter}"
-                    # ensure the id is unique
-                    # might need to change after expand is implemented for TRAPI 1.0
-                    while id in self.message.knowledge_graph.edges:
-                        id = f"{relation}_{self.global_iter}.{random.randint(10**(9-1), (10**9)-1)}"
-                    self.global_iter += 1
-                    edge_attribute_list = [
-                        edge_attribute,
-                        pmid_attribute,
-                        EdgeAttribute(original_attribute_name="is_defined_by", value=is_defined_by, attribute_type_id="biolink:Unknown"),
-                        EdgeAttribute(original_attribute_name="defined_datetime", value=defined_datetime, attribute_type_id="metatype:Datetime"),
-                        EdgeAttribute(original_attribute_name="provided_by", value=provided_by, attribute_type_id="biolink:aggregator_knowledge_source", attribute_source=provided_by, value_type_id="biolink:InformationResource"),
-                        EdgeAttribute(original_attribute_name=None, value=True, attribute_type_id="biolink:computed_value", attribute_source="infores:arax-reasoner-ara", value_type_id="metatype:Boolean", value_url=None, description="This edge is a container for a computed value between two nodes that is not directly attachable to other edges.")
-                        #EdgeAttribute(original_attribute_name="confidence", value=confidence, attribute_type_id="biolink:ConfidenceLevel"),
-                        #EdgeAttribute(original_attribute_name="weight", value=weight, attribute_type_id="metatype:Float"),
-                        #EdgeAttribute(original_attribute_name="qedge_keys", value=qedge_keys)
-                    ]
-                    # edge = Edge(id=id, type=edge_type, relation=relation, subject_key=subject_key,
-                    #             object_key=object_key,
-                    #             is_defined_by=is_defined_by, defined_datetime=defined_datetime,
-                    #             provided_by=provided_by,
-                    #             confidence=confidence, weight=weight, attributes=[edge_attribute], qedge_ids=qedge_ids)
-                    edge = Edge(predicate=edge_type, subject=subject_key, object=object_key, relation=relation,
-                                attributes=edge_attribute_list)
-                    edge.qedge_keys = qedge_keys
-                    self.message.knowledge_graph.edges[id] = edge
+            # Create the NGD edges in parallel and then add them all to the KG
+            self.response.debug(f"Creating {len(node_pairs_to_evaluate)} virtual NGD edges in parallel")
+            num_cpus = multiprocessing.cpu_count()
+            with multiprocessing.Pool(num_cpus) as pool:
+                edges = pool.starmap(self.create_virtual_ngd_edge, [[subject_curie, object_curie,
+                                                                     canonicalized_curie_lookup, default_value,
+                                                                     virtual_relation_label, name, url]
+                                                                    for (subject_curie, object_curie) in node_pairs_to_evaluate])
+            self.response.debug(f"Created {len(edges)} NGD edges; now adding them to the KG")
+            counter = 0
+            for edge in edges:
+                edge_id = f"{virtual_relation_label}_{counter}"
+                # ensure the id is unique
+                # might need to change after expand is implemented for TRAPI 1.0
+                while edge_id in self.message.knowledge_graph.edges:
+                    edge_id = f"{virtual_relation_label}_{self.global_iter}.{random.randint(10 ** (9 - 1), (10 ** 9) - 1)}"
+                kg.edges[edge_id] = edge
+                counter += 1
 
             # Now add a q_edge the query_graph since I've added an extra edge to the KG
-            if added_flag:
+            if edges:
                 #edge_type = parameters['virtual_edge_type']
                 edge_type = [ "biolink:has_normalized_google_distance_with" ]
-                relation = parameters['virtual_relation_label']
+                relation = virtual_relation_label
                 option_group_id = ou.determine_virtual_qedge_option_group(subject_qnode_key, object_qnode_key, qg, self.response)
                 # q_edge = QEdge(id=relation, type=edge_type, relation=relation,
                 #                subject_key=subject_qnode_key, object_key=object_qnode_key,
@@ -187,11 +148,11 @@ class ComputeNGD:
                 self.response.error(f"Something went wrong adding the NGD edge attributes")
             else:
                 self.response.info(f"NGD values successfully added to edges")
-            self._close_database()
             return self.response
 
     def load_curie_to_pmids_data(self, canonicalized_curies):
         self.response.debug(f"Extracting PMID lists from sqlite database for relevant nodes")
+        connection, cursor = self._connect_to_ngd_database()
         curies = list(set(canonicalized_curies))
         chunk_size = 20000
         num_chunks = len(curies) // chunk_size if len(curies) % chunk_size == 0 else (len(curies) // chunk_size) + 1
@@ -200,12 +161,72 @@ class ComputeNGD:
         for num in range(num_chunks):
             chunk = curies[start_index:stop_index] if stop_index <= len(curies) else curies[start_index:]
             curie_list_str = ", ".join([f"'{curie}'" for curie in chunk if "'" not in curie])
-            self.cursor.execute(f"SELECT * FROM curie_to_pmids WHERE curie in ({curie_list_str})")
-            rows = self.cursor.fetchall()
+            cursor.execute(f"SELECT * FROM curie_to_pmids WHERE curie in ({curie_list_str})")
+            rows = cursor.fetchall()
             for row in rows:
                 self.curie_to_pmids_map[row[0]] = json.loads(row[1])  # PMID list is stored as JSON string in sqlite db
             start_index += chunk_size
             stop_index += chunk_size
+        cursor.close()
+        connection.close()
+
+    def create_virtual_ngd_edge(self, subject_curie: str, object_curie: str, canonicalized_curie_lookup: Dict[str, str],
+                                default_value, virtual_relation_label: str, name: str, url: str) -> Edge:
+        # create the edge attribute if it can be
+        canonical_subject_curie = canonicalized_curie_lookup.get(subject_curie, subject_curie)
+        canonical_object_curie = canonicalized_curie_lookup.get(object_curie, object_curie)
+        ngd_value, pmid_set = self.calculate_ngd_fast(canonical_subject_curie, canonical_object_curie)
+        if np.isfinite(ngd_value):  # if ngd is finite, that's ok, otherwise, stay with default
+            edge_value = ngd_value
+        else:
+            edge_value = default_value
+        edge_attribute = EdgeAttribute(attribute_type_id=type, original_attribute_name=name, value=str(edge_value),
+                                       value_url=url)  # populate the NGD edge attribute
+        pmid_attribute = EdgeAttribute(attribute_type_id="biolink:publications",
+                                       original_attribute_name="publications",
+                                       value=[f"PMID:{pmid}" for pmid in pmid_set])
+
+        # edge properties
+        now = datetime.now()
+        edge_type = "biolink:has_normalized_google_distance_with"
+        qedge_keys = [virtual_relation_label]
+        relation = virtual_relation_label
+        is_defined_by = "ARAX"
+        defined_datetime = now.strftime("%Y-%m-%d %H:%M:%S")
+        provided_by = "infores:arax"
+        confidence = None
+        weight = None  # TODO: could make the actual value of the attribute
+        subject_key = subject_curie
+        object_key = object_curie
+
+        self.global_iter += 1
+        edge_attribute_list = [
+            edge_attribute,
+            pmid_attribute,
+            EdgeAttribute(original_attribute_name="is_defined_by", value=is_defined_by,
+                          attribute_type_id="biolink:Unknown"),
+            EdgeAttribute(original_attribute_name="defined_datetime", value=defined_datetime,
+                          attribute_type_id="metatype:Datetime"),
+            EdgeAttribute(original_attribute_name="provided_by", value=provided_by,
+                          attribute_type_id="biolink:aggregator_knowledge_source", attribute_source=provided_by,
+                          value_type_id="biolink:InformationResource"),
+            EdgeAttribute(original_attribute_name=None, value=True, attribute_type_id="biolink:computed_value",
+                          attribute_source="infores:arax-reasoner-ara", value_type_id="metatype:Boolean",
+                          value_url=None,
+                          description="This edge is a container for a computed value between two nodes that is not directly attachable to other edges.")
+            # EdgeAttribute(original_attribute_name="confidence", value=confidence, attribute_type_id="biolink:ConfidenceLevel"),
+            # EdgeAttribute(original_attribute_name="weight", value=weight, attribute_type_id="metatype:Float"),
+            # EdgeAttribute(original_attribute_name="qedge_keys", value=qedge_keys)
+        ]
+        # edge = Edge(id=id, type=edge_type, relation=relation, subject_key=subject_key,
+        #             object_key=object_key,
+        #             is_defined_by=is_defined_by, defined_datetime=defined_datetime,
+        #             provided_by=provided_by,
+        #             confidence=confidence, weight=weight, attributes=[edge_attribute], qedge_ids=qedge_ids)
+        edge = Edge(predicate=edge_type, subject=subject_key, object=object_key, relation=relation,
+                    attributes=edge_attribute_list)
+        edge.qedge_keys = qedge_keys
+        return edge
 
     def calculate_ngd_fast(self, subject_curie, object_curie):
         if subject_curie in self.curie_to_pmids_map and object_curie in self.curie_to_pmids_map:
@@ -267,7 +288,7 @@ class ComputeNGD:
                     canonical_curies_map[input_curie] = input_curie
             return canonical_curies_map
 
-    def _setup_ngd_database(self):
+    def _connect_to_ngd_database(self):
         # Download the ngd database if there isn't already a local copy or if a newer version is available
         #db_path_local = f"{os.path.dirname(os.path.abspath(__file__))}/ngd/{self.ngd_database_name}"
         #db_path_remote = f"/data/orangeboard/databases/KG2.3.4/{self.ngd_database_name}"
@@ -302,10 +323,4 @@ class ComputeNGD:
             return None, None
         else:
             return connection, cursor
-
-    def _close_database(self):
-        if self.cursor:
-            self.cursor.close()
-        if self.connection:
-            self.connection.close()
 
